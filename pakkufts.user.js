@@ -4,6 +4,7 @@
 // @include     *://*.bilibili.com/*
 // @version     1
 // @grant       none
+// @updateURL   https://raw.githubusercontent.com/fanthos/pakku.user.js/master/pakkufts.user.js
 // ==/UserScript==
 
 // Configuration
