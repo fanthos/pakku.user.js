@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name        pakku.js modified by fts
-// @namespace   me.fts.pakkujs
+// @name        pakku.user.js
+// @description GreaseMonkey version of pakku.js.
 // @include     *://*.bilibili.com/*
 // @version     1.1
 // @grant       none
