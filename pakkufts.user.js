@@ -14,7 +14,7 @@
 
 THRESHOLD=20;
 TRIM_ENDING=true;
-TAOLUS={"233...":"^23{2,}$","666...":"^6{3,}$","FFF...":"^[fF]+$","hhh...":"^[hH]+$"};
+TAOLUS=[[/^23{2,}$/,"233..."],[/^6{3,}$/,"666..."],[/^[fF]+$/,"FFF..."],[/^[hH]+$/,"hhh..."]];
 REMOVE_SEEK=true;
 PROC_TYPE7=true;
 MAX_COSINE=80;
