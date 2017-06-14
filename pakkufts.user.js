@@ -7,134 +7,180 @@
 // @updateURL   https://raw.githubusercontent.com/fanthos/pakku.user.js/master/pakkufts.user.js
 // ==/UserScript==
 
+(function(){
+
 // Configuration
 // I am too lazy to add configuration UI :)
 
-THRESHOLD=parseInt(15);
-DANMU_FUZZ = true;
+THRESHOLD=20;
 TRIM_ENDING=true;
-TAOLUS=fromholyjson('{"233...":"^23{2,}$","666...":"^6{3,}$","FFF...":"^[fF]+$","hhh...":"^[hH]+$"}');
+TAOLUS={"233...":"^23{2,}$","666...":"^6{3,}$","FFF...":"^[fF]+$","hhh...":"^[hH]+$"};
 REMOVE_SEEK=true;
-FLASH_NOTIF=true;
-DANMU_BADGE=true;
-POPUP_BADGE='percent';
 PROC_TYPE7=true;
+MAX_COSINE=80;
+MAX_DIST=3;
+TRIM_ENDING=true;
+TRIM_SPACE=true;
+WHITELIST=[];
+DANMU_MARK='suffix';
+ENLARGE=true;
+
+//Unused in script:
+/*
+DANMU_BADGE
+FLASH_NOTIF
+POPUP_BADGE
+//*/
+
+function fromholyjson(txt) {
+	var item=JSON.parse(txt);
+	for(var i in item)
+		item[i][0]=RegExp(item[i][0]);
+	return item;
+}
+function toholyjson(obj) {
+	var item=[];
+	for(var i in obj)
+		item.push([obj[i][0].source,obj[i][1]]);
+	return JSON.stringify(item);
+}
 
 
-MAX_DIST=1+DANMU_FUZZ * 4;
 
 
 // Copied from edit_distance.js
 
 var ed_counts = new Int16Array (0x10ffff);
+var ed_a = new Int16Array (1048576);
+var ed_b = new Int16Array (1048576);
+var ed_t = new Int32Array (2048);
 
 var MIN_DANMU_SIZE=10;
 
+function hash(a, b) {
+	return ((a<<10)^b)&1048575;
+}
+
 function edit_distance (P, Q) {
-    'use strict';
+	'use strict';
+	// TODO: Make this less hacky
 
-    // TODO: Make this less hacky
-    if (P.length + Q.length < MIN_DANMU_SIZE)
-        return (MAX_DIST + 1) * +(P != Q);
+	if (P.length + Q.length < MIN_DANMU_SIZE)
+		return (MAX_DIST + 1) * +(P != Q);
 
-    for (var i = 0; i < P.length; i ++) ed_counts [P.charCodeAt (i)] ++;
-    for (var i = 0; i < Q.length; i ++) ed_counts [Q.charCodeAt (i)] --;
+	for (var i = 0; i < P.length; i ++) ed_counts [P.charCodeAt (i)] ++;
+	for (var i = 0; i < Q.length; i ++) ed_counts [Q.charCodeAt (i)] --;
 
-    var ans = 0;
+	var ans = 0;
 
-    for (var i = 0; i < P.length; i ++) {
-        ans += Math.abs (ed_counts[P.charCodeAt (i)]);
-        ed_counts[P.charCodeAt (i)] = 0;
-    }
+	for (var i = 0; i < P.length; i ++) {
+		ans += Math.abs (ed_counts[P.charCodeAt (i)]);
+		ed_counts[P.charCodeAt (i)] = 0;
+	}
 
-    for (var i = 0; i < Q.length; i ++) {
-        ans += Math.abs (ed_counts[Q.charCodeAt (i)]);
-        ed_counts[Q.charCodeAt (i)] = 0;
-    }
+	for (var i = 0; i < Q.length; i ++) {
+		ans += Math.abs (ed_counts[Q.charCodeAt (i)]);
+		ed_counts[Q.charCodeAt (i)] = 0;
+	}
 
-    return ans;
+	return ans;
 }
 
-function BKTree () {
-    this.root = null;
-    this.count = 0;
+function cosine_distance (P, Q) {
+
+	'use strict';
+
+	var ed_t_p = 0;
+
+	ed_a[hash(P.charCodeAt(P.length - 1), P.charCodeAt(0))] = 1;
+	ed_b[hash(Q.charCodeAt(Q.length - 1), Q.charCodeAt(0))] = 1;
+
+	ed_t[ed_t_p++] = hash(P.charCodeAt(P.length - 1), P.charCodeAt(0));
+	ed_t[ed_t_p++] = hash(Q.charCodeAt(Q.length - 1), Q.charCodeAt(0));
+	for (var i = 0; i < P.length - 1; i++) {
+		var h1 = hash(P.charCodeAt(i), P.charCodeAt(i + 1));
+		ed_t[ed_t_p++] = h1;
+		ed_a[h1] += 1;
+	}
+	for (var i = 0; i < Q.length - 1; i++) {
+		var h1 = hash(Q.charCodeAt(i), Q.charCodeAt(i + 1));
+		ed_t[ed_t_p++] = h1;
+		ed_b[h1] += 1;
+	}
+	var data = Array();
+
+	var x = 0, y = 0, z = 0;
+
+	for (var i = 0; i < ed_t_p; i++) {
+		var h1 = ed_t[i];
+		if (ed_a[h1]) {
+			y += ed_a[h1] * ed_a[h1];
+			if (ed_b[h1]) {
+                x += ed_a[h1] * ed_b[h1];
+                z += ed_b[h1] * ed_b[h1];
+				ed_b[h1] = 0;
+			}
+			ed_a[h1] = 0;
+		}
+		else {
+			if (ed_b[h1]) {
+                z += ed_b[h1] * ed_b[h1];
+				ed_b[h1] = 0;
+			};
+			
+		}
+	}
+	//console.log(x,y,z);
+	return x * x / y / z;
 }
 
-BKTree.prototype.insert = function (new_str, time) {
-    'use strict';
-
-    this.count ++;
-    
-
-    var new_node = { val: new_str, time: time, children: new Map () };
-
-    if (this.root == null)
-        this.root = new_node;
-    else {
-        var node = this.root;
-        var dist = edit_distance (node.val, new_str);
-        while (node.children.has (dist)) {
-            node = node.children.get (dist);
-            dist = edit_distance (node.val, new_str);
-        }
-        node.children.set (dist, new_node);
-    }
-
-    return new_node;
-};
-
-BKTree.prototype.find = function (str, time_lim) {
-    'use strict';
-
-    //var best_time, best_str = null;
-
-    if (this.root != null) {
-        var queue = [this.root];
-
-        while (queue.length) {
-            var u = queue.pop ();
-            var dist = edit_distance (u.val, str);
-            
-            if (dist < MAX_DIST && u.time > time_lim)
-                return u;
-
-            u.children.forEach (function (value, key) {
-                if (dist - MAX_DIST <= key && key <= dist + MAX_DIST)
-                    queue.push (value);
-            });
-        }
-    }
-
-    return null;
-};
+function similar(P,Q) {
+	return edit_distance(P,Q)<=MAX_DIST || cosine_distance(P,Q)*100>=MAX_COSINE;
+}
 
 // Copied from core.js
 
 var trim_ending_re=/^(.+?)[\.。,，/\?？!！~～@\^、+=\-_♂♀ ]*$/;
+var trim_space_re=/[ 　]/g;
+var LOG_VERBOSE=true;
 
-function fromholyjson(txt) {
-	var item=JSON.parse(txt);
-	for(var key in item)
-		item[key]=RegExp(item[key]);
-	return item;
-}
-function toholyjson(obj) {
-	var item={};
-	for(var key in obj)
-		item[key]=obj[key].source;
-	return JSON.stringify(item);
-}
-
-
-function parse(old_dom, tabid) {
+function parse(old_dom,tabid) {
+	TAOLUS_len=TAOLUS.length;
+	WHITELIST_len=WHITELIST.length;
+	
+	  //chrome.browserAction.setTitle({
+	  //		title: '正在处理弹幕…', // if u can see this, pakku might not be working correctly :)
+		//	  tabId: tabid
+		//});
+	
 	console.time('parse');
 	
-	function detaolu(text) {
-		for(var name in TAOLUS)
-			if(TAOLUS[name].test(text))
-				return name;
-		return TRIM_ENDING ? text.replace(trim_ending_re,'$1') : text;
+	function enlarge(size,count) {
+		return count<=10 ? size : Math.floor(size*Math.log10(count));
 	}
+
+	
+	function make_mark(txt,cnt) {
+		return DANMU_MARK=='suffix' ? txt+' [x'+cnt+']' :
+			   DANMU_MARK=='prefix' ? '[x'+cnt+'] '+txt : txt;
+	}
+	
+	function detaolu(text) {
+		for(var i=0;i<TAOLUS_len;i++)
+			if(TAOLUS[i][0].test(text))
+				return TAOLUS[i][1];
+		text = TRIM_ENDING ? text.replace(trim_ending_re,'$1') : text;
+		text = TRIM_SPACE ? text.replace(trim_space_re,'') : text;
+		return text;
+	}
+	
+	function whitelisted(text) {
+		for(var i=0;i<WHITELIST_len;i++)
+			if(WHITELIST[i][0].test(text))
+				return true;
+		return false;
+	}
+	
 	function ext_special_danmu(text) {
 		try {
 			return JSON.parse(text)[4];
@@ -142,7 +188,9 @@ function parse(old_dom, tabid) {
 			return text;
 		}
 	}
-	function build_text(elem,text,count) {
+	
+	function build_text(elem) {
+		var count=elem.count;
 		var dumped=null;
 		if(elem.mode=='7') // special danmu, need more parsing
 			try {
@@ -150,152 +198,137 @@ function parse(old_dom, tabid) {
 			} catch(e) {}
 		
 		if(dumped) {
-			dumped[4]=(count==1 || !DANMU_BADGE) ?
-				text :
-				text+' [x'+count.toString()+']';
+			dumped[4]=count==1?dumped[4]:make_mark(elem.str,count);
 			return JSON.stringify(dumped);
 		} else // normal case
-			return (count==1 || !DANMU_BADGE) ?
-				text :
-				text+' [x'+count.toString()+']';
+			return count==1?elem.orig_str:make_mark(elem.str,count);
 	}
 
 	var parser=new DOMParser();
-	var new_dom=parser.parseFromString('<i></i>','text/xml');
 	var dom=parser.parseFromString(old_dom,'text/xml');
-	var i_elem = new_dom.children[0];
-	//var i_elem=new_dom.getRootNode().children[0];
+	var new_dom=parser.parseFromString('<i></i>','text/xml');
+	var i_elem=new_dom.childNodes[0];
 
 	var danmus=[];
-	[].slice.call(dom.children[0].children).forEach(function(elem) {
-		if(elem.tagName=='d') {
+	[].slice.call(dom.childNodes[0].children).forEach(function(elem) {
+		if(elem.tagName=='d') { // danmu
 			var attr=elem.attributes['p'].value.split(',');
 			var str=elem.childNodes[0] ? elem.childNodes[0].data : '';
 
-			if(!PROC_TYPE7 && attr[1]=='7')
+			if(!PROC_TYPE7 && attr[1]=='7') // special danmu
 				i_elem.appendChild(elem);
-			else
+			else if(attr[1]=='8') { // code danmu
+				if(REMOVE_SEEK && str.indexOf('Player.seek(')!=-1)
+					elem.childNodes[0].data='/* player.seek filtered by pakku */';
+				i_elem.appendChild(elem);
+			} else if(whitelisted(str)) {
+				i_elem.appendChild(elem);
+			} else
 				danmus.push({
 					attr: attr, // thus we can build it into new_dom again
-					str: attr[1]=='7' ? ext_special_danmu(str) :
-						(REMOVE_SEEK && attr[1]=='8' && str.indexOf('Player.seek(')!=-1) ? 'filtered' :
-						detaolu(str),
+					str: attr[1]=='7' ? detaolu(ext_special_danmu(str)) : detaolu(str),
 					time: parseFloat(attr[0]),
 					orig_str: str,
-					mode: attr[1]
+					mode: attr[1],
+					count: 1,
 				});
 		} else
 			i_elem.appendChild(elem);
 	});
 	danmus.sort(function(x,y) {return x.time-y.time;});
 
-	var danmu_hist=new Map();
-	var bk=new BKTree(), bk_buf=new BKTree(); // double buffer
+	var danmu_chunk=Array();
 	var last_time=0;
-
-	danmus.forEach(function(dm) {
-		var time=dm.time;
-		var str=dm.str;
-
-		if (time-last_time>THRESHOLD) { // swap buffer
-			bk=bk_buf;
-			bk_buf=new BKTree();
-			last_time=time;
-		}
-
-		var res=bk.find(str,time-THRESHOLD);
-		if (res==null) {
-			var node=bk.insert(str,time);
-			danmu_hist.set(node,[dm]);
-			var node_buf=bk_buf.insert(str,time);
-			danmu_hist.set(node_buf,[]);
-		} else {
-			danmu_hist.get(res).push(dm);
-
-			var res_buf=bk_buf.find(str,time-THRESHOLD);
-
-			if (res_buf==null) {
-				var node=bk_buf.insert(str,time);
-				danmu_hist.set(node,[]);
-			}
-		}
-	});
-
 	var counter=0;
 
-	danmu_hist.forEach(function(value,key) {
-		if (!value.length) return; // dummy node
-
-		var len=1, last_time=value[0].time;
-		for (var i=1; i<value.length; i++)
-			if(value[i].time-last_time<THRESHOLD)
-				len++;
-			else {
-				counter+=len-1;
-				var d=new_dom.createElement('d');
-				var tn=new_dom.createTextNode(build_text(value[i-1],key.val,len));
-
-				d.appendChild(tn);
-				d.setAttribute('p',value[i-1].attr.join(','));
-				i_elem.appendChild(d);
-
-				last_time=value[i].time;
-				len=0;
-			}
-
-		counter+=len-1;
+	function apply_item(dm) {
+		counter+=dm.count-1;
 		var d=new_dom.createElement('d');
-		var tn=new_dom.createTextNode(build_text(value[i-1],key.val,len));
+		var tn=new_dom.createTextNode(build_text(dm));
 
 		d.appendChild(tn);
-		d.setAttribute('p',value[i-1].attr.join(','));
+		if(ENLARGE)
+			dm.attr[2]=''+enlarge(parseInt(dm.attr[2]),dm.count);
+		d.setAttribute('p',dm.attr.join(','));
 		i_elem.appendChild(d);
+	}
+	
+	danmus.forEach(function(dm) {
+		while(danmu_chunk.length && dm.time-danmu_chunk[0].time>THRESHOLD)
+			apply_item(danmu_chunk.shift());
+		
+		for(var i=0;i<danmu_chunk.length;i++) {
+			if(similar(dm.str,danmu_chunk[i].str)) {
+				if(LOG_VERBOSE) {
+					if(edit_distance(dm.str,danmu_chunk[i].str)>MAX_DIST)
+						console.log('cosine_dis',dm.str,'to',danmu_chunk[i].str);
+					else
+						console.log('edit_dis',dm.str,'to',danmu_chunk[i].str);
+				}
+				danmu_chunk[i].count++;
+				return; // aka continue
+			}
+		}
+		danmu_chunk.push(dm);
 	});
-	console.log( '已过滤 '+counter+'/'+danmus.length+' 弹幕', tabid);
+	for(var i=0;i<danmu_chunk.length;i++)
+		apply_item(danmu_chunk[i]);
+
+	//setbadge((
+	//        POPUP_BADGE=='count' ? ''+counter :
+	//        POPUP_BADGE=='percent' ? (danmus.length ? (counter*100/danmus.length).toFixed(0)+'%' : '0%') :
+	//        ''
+	//    ),SUCCESS_COLOR,tabid
+	//);
+	//chrome.browserAction.setTitle({
+	//    title: '已过滤 '+counter+'/'+danmus.length+' 弹幕',
+	//    tabId: tabid
+	//});
 	var serializer=new XMLSerializer();
-	//console.timeEnd('parse');
+	console.timeEnd('parse');
 	return [serializer.serializeToString(new_dom), new_dom];
 }
 
 // Hijacking XMLHttpRequest to make this script work
 
-(function() {
-	WINDOW = window;
-	if(WINDOW._xhr)return;
-	WINDOW._xhr = WINDOW.XMLHttpRequest;
-	WINDOW.XMLHttpRequest = function() {
-		//cannot use apply directly since we want a 'new' version
-		var wrapped = new(Function.prototype.bind.apply(WINDOW._xhr, arguments));
+WINDOW = window;
+if(WINDOW._fts_xhr)return;
+WINDOW._fts_xhr = WINDOW.XMLHttpRequest;
+WINDOW.XMLHttpRequest = function() {
+	//cannot use apply directly since we want a 'new' version
+	var wrapped = new(Function.prototype.bind.apply(WINDOW._fts_xhr, arguments));
 
-		wrapped.addEventListener("readystatechange", function () {
+	wrapped.addEventListener("readystatechange", function () {
+		var r;
+		try{
 			if(wrapped.readyState == 4) {
 				//console.log(wrapped);
-				if( wrapped.responseURL.match(/^(https:|http:|)?\/\/comment.bilibili.com\/.*\.xml/)) {
+				if( wrapped.responseURL.match(/^(https:|http:|)?(\/\/)?comment.bilibili.com\/.*\.xml/)) {
 					console.log("processing danmoku", wrapped);
-					try{
-						var r = parse(wrapped.response, 0);
-					} catch(e) {
-						console.log(e);
-					}
-					Object.defineProperty(wrapped, 'responseText', {
-						writable: true
-					});
-					Object.defineProperty(wrapped, 'responseXML', {
-						writable: true
-					});
-					Object.defineProperty(wrapped, 'response', {
-						writable: true
-					});
-					wrapped.responseXML = r[1];
-					wrapped.responseText = r[0];
-					wrapped.response = r[0];
+						r = parse(wrapped.response, 0);
+						Object.defineProperty(wrapped, 'responseText', {
+							writable: true
+						});
+						Object.defineProperty(wrapped, 'responseXML', {
+							writable: true
+						});
+						Object.defineProperty(wrapped, 'response', {
+							writable: true
+						});
+						wrapped.responseXML = r[1];
+						wrapped.responseText = r[0];
+						wrapped.response = r[0];
 				}
 			}
-		});
-		//*/
+		} catch(e) {
+			console.log(e, r);
+		}
+	});
+	//*/
 
-		return wrapped;
-	};
-	console.log("r1 loaded");
-})();	
+	return wrapped;
+};
+console.log("r1 loaded");
 
+
+})();
