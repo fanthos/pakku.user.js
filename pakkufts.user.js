@@ -2,9 +2,8 @@
 // @name        pakku.js modified by fts
 // @namespace   me.fts.pakkujs
 // @include     *://*.bilibili.com/*
-// @version     1
+// @version     1.1
 // @grant       none
-// @updateURL   https://raw.githubusercontent.com/fanthos/pakku.user.js/master/pakkufts.user.js
 // ==/UserScript==
 
 (function(){
