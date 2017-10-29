@@ -1,3 +1,7 @@
+Sence Pakku.js supported Firefox officially, this repo stop maintaining. New users should switch original version of Pakku.js if possible.
+
+https://github.com/xmcp/pakku.js
+
 # pakku.user.js
 Pakku.js for greasemonkey
 
