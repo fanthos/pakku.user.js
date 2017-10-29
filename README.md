@@ -1,4 +1,6 @@
-Sence Pakku.js supported Firefox officially, this repo stop maintaining. New users should switch original version of Pakku.js if possible.
+由于Pakku.js已经官方支持Firefox浏览器，此项目停止更新。新用户建议使用官方版本的Pakku.js。
+
+Since Pakku.js has Firefox support officially, this repo stop maintaining. Users should switch to original version of Pakku.js if possible.
 
 https://github.com/xmcp/pakku.js
 
